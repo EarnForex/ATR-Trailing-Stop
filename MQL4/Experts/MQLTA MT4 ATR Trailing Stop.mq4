@@ -1,5 +1,5 @@
 #property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
-#property version       "1.06"
+#property version       "1.07"
 #property strict
 #property copyright     "EarnForex.com - 2019-2023"
 #property description   "This expert advisor will trail the stop-loss using ATR as a distance from the price."
@@ -166,8 +166,8 @@ void TrailingStop()
         double TickSize = SymbolInfoDouble(Instrument, SYMBOL_TRADE_TICK_SIZE);
         if (TickSize > 0)
         {
-            SLBuy = NormalizeDouble(MathRound(SLBuy / TickSize) * TickSize, _Digits);
-            SLSell = NormalizeDouble(MathRound(SLSell / TickSize) * TickSize, _Digits);
+            SLBuy = NormalizeDouble(MathRound(SLBuy / TickSize) * TickSize, eDigits);
+            SLSell = NormalizeDouble(MathRound(SLSell / TickSize) * TickSize, eDigits);
         }
         if ((OrderType() == OP_BUY) && (SLBuy < MarketInfo(Instrument, MODE_BID) - StopLevel))
         {
@@ -207,7 +207,7 @@ void ModifyOrder(int Ticket, double OpenPrice, double SLPrice, double TPPrice)
         bool res = OrderModify(Ticket, OpenPrice, SLPrice, TPPrice, 0, clrBlue);
         if (res)
         {
-            Print("TRADE - UPDATE SUCCESS - Order ", Ticket, " in ", OrderSymbol(), ": new stop loss ", SLPrice, " new take profit ", TPPrice);
+            Print("TRADE - UPDATE SUCCESS - Order ", Ticket, " in ", OrderSymbol(), ": new stop-loss ", SLPrice, " new take-profit ", TPPrice);
             NotifyStopLossUpdate(Ticket, SLPrice, OrderSymbol());
             break;
         }
@@ -221,7 +221,6 @@ void ModifyOrder(int Ticket, double OpenPrice, double SLPrice, double TPPrice)
             Print("ERROR - ", ErrorText);
         }
     }
-    return;
 }
 
 void NotifyStopLossUpdate(int OrderNumber, double SLPrice, string symbol)
@@ -243,7 +242,6 @@ void NotifyStopLossUpdate(int OrderNumber, double SLPrice, string symbol)
     {
         if (!SendNotification(AppText)) Print("Error sending notification " + IntegerToString(GetLastError()));
     }
-    datetime LastNotification = TimeCurrent();
 }
 
 
@@ -253,7 +251,7 @@ string PanelEnableDisable = ExpertName + "-P-ENADIS";
 void DrawPanel()
 {
     string PanelText = "MQLTA ATRTS";
-    string PanelToolTip = "ATR Trailing Stop Loss By EarnForex";
+    string PanelToolTip = "ATR Trailing Stop-Loss By EarnForex.com";
 
     int Rows = 1;
     if (ObjectFind(0, PanelBase) < 0) ObjectCreate(0, PanelBase, OBJ_RECTANGLE_LABEL, 0, 0, 0);
