@@ -1,11 +1,11 @@
 #property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
-#property version       "1.07"
+#property version       "1.08"
 #property strict
-#property copyright     "EarnForex.com - 2019-2023"
+#property copyright     "EarnForex.com - 2019-2024"
 #property description   "This expert advisor will trail the stop-loss using ATR as a distance from the price."
 #property description   " "
 #property description   "WARNING: Use this software at your own risk."
-#property description   "The creator of these plugins cannot be held responsible for any damage or loss."
+#property description   "The creator of this EA cannot be held responsible for any damage or loss."
 #property description   " "
 #property description   "Find More on www.EarnForex.com"
 #property icon          "\\Files\\EF-Icon-64x64px.ico"
@@ -64,10 +64,7 @@ int PanelMovX, PanelMovY, PanelLabX, PanelLabY, PanelRecX;
 
 int OnInit()
 {
-    CleanPanel();
-
     EnableTrailing = EnableTrailingParam;
-    if (ShowPanel) DrawPanel();
 
     DPIScale = (double)TerminalInfoInteger(TERMINAL_SCREEN_DPI) / 96.0;
 
@@ -76,6 +73,8 @@ int OnInit()
     PanelLabX = (int)MathRound(150 * DPIScale);
     PanelLabY = PanelMovY;
     PanelRecX = PanelLabX + 4;
+
+    if (ShowPanel) DrawPanel();
 
     return INIT_SUCCEEDED;
 }
@@ -103,7 +102,7 @@ void OnChartEvent(const int id,
             ChangeTrailingEnabled();
         }
     }
-    if (id == CHARTEVENT_KEYDOWN)
+    else if (id == CHARTEVENT_KEYDOWN)
     {
         if (lparam == 27)
         {
@@ -255,8 +254,8 @@ void DrawPanel()
 
     int Rows = 1;
     if (ObjectFind(0, PanelBase) < 0) ObjectCreate(0, PanelBase, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-    ObjectSet(PanelBase, OBJPROP_XDISTANCE, Xoff);
-    ObjectSet(PanelBase, OBJPROP_YDISTANCE, Yoff);
+    ObjectSetInteger(0, PanelBase, OBJPROP_XDISTANCE, Xoff);
+    ObjectSetInteger(0, PanelBase, OBJPROP_YDISTANCE, Yoff);
     ObjectSetInteger(0, PanelBase, OBJPROP_XSIZE, PanelRecX);
     ObjectSetInteger(0, PanelBase, OBJPROP_YSIZE, (PanelMovY + 2) * 1 + 2);
     ObjectSetInteger(0, PanelBase, OBJPROP_BGCOLOR, clrWhite);
@@ -264,7 +263,7 @@ void DrawPanel()
     ObjectSetInteger(0, PanelBase, OBJPROP_STATE, false);
     ObjectSetInteger(0, PanelBase, OBJPROP_HIDDEN, true);
     ObjectSetInteger(0, PanelBase, OBJPROP_FONTSIZE, 8);
-    ObjectSet(PanelBase, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, PanelBase, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, PanelBase, OBJPROP_COLOR, clrBlack);
 
     DrawEdit(PanelLabel,
@@ -317,7 +316,6 @@ void DrawPanel()
 
     Rows++;
 
-    ObjectSetInteger(0, PanelBase, OBJPROP_XSIZE, PanelRecX);
     ObjectSetInteger(0, PanelBase, OBJPROP_YSIZE, (PanelMovY + 1) * Rows + 3);
 }
 

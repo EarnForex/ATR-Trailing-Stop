@@ -1,11 +1,11 @@
 #property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
-#property version       "1.07"
+#property version       "1.08"
 
-#property copyright     "EarnForex.com - 2019-2023"
+#property copyright     "EarnForex.com - 2019-2024"
 #property description   "This expert advisor will trail the stop-loss using ATR as a distance from the price."
 #property description   " "
 #property description   "WARNING: Use this software at your own risk."
-#property description   "The creator of these plugins cannot be held responsible for any damage or loss."
+#property description   "The creator of this EA cannot be held responsible for any damage or loss."
 #property description   " "
 #property description   "Find More on www.EarnForex.com"
 #property icon          "\\Files\\EF-Icon-64x64px.ico"
@@ -70,9 +70,7 @@ CTrade *Trade; // Trading object.
 
 int OnInit()
 {
-    CleanPanel();
     EnableTrailing = EnableTrailingParam;
-    if (ShowPanel) DrawPanel();
 
     DPIScale = (double)TerminalInfoInteger(TERMINAL_SCREEN_DPI) / 96.0;
 
@@ -82,6 +80,8 @@ int OnInit()
     PanelLabY = PanelMovY;
     PanelRecX = PanelLabX + 4;
     
+    if (ShowPanel) DrawPanel();
+
     ArrayResize(Symbols, 1, 10); // At least one (current symbol) and up to 10 reserved space.
     ArrayResize(SymbolHandles, 1, 10);
     
@@ -117,7 +117,7 @@ void OnChartEvent(const int id,
             ChangeTrailingEnabled();
         }
     }
-    if (id == CHARTEVENT_KEYDOWN)
+    else if (id == CHARTEVENT_KEYDOWN)
     {
         if (lparam == 27)
         {
@@ -219,7 +219,7 @@ void TrailingStop()
             if ((NewSL > SLPrice) || (SLPrice == 0))
             {
                 
-                ModifyOrder((int)ticket, NewSL, NewTP);
+                ModifyOrder(ticket, NewSL, NewTP);
             }
         }
         else if ((PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) && (SLSell > SymbolInfoDouble(Instrument, SYMBOL_ASK) + StopLevel))
@@ -228,13 +228,13 @@ void TrailingStop()
             NewTP = TPPrice;
             if ((NewSL < SLPrice) || (SLPrice == 0))
             {
-                ModifyOrder((int)ticket, NewSL, NewTP);
+                ModifyOrder(ticket, NewSL, NewTP);
             }
         }
     }
 }
 
-void ModifyOrder(int Ticket, double SLPrice, double TPPrice)
+void ModifyOrder(ulong Ticket, double SLPrice, double TPPrice)
 {
     string symbol = PositionGetString(POSITION_SYMBOL);
     int eDigits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -267,7 +267,7 @@ void ModifyOrder(int Ticket, double SLPrice, double TPPrice)
     }
 }
 
-void NotifyStopLossUpdate(int OrderNumber, double SLPrice, string symbol)
+void NotifyStopLossUpdate(ulong OrderNumber, double SLPrice, string symbol)
 {
     if (!EnableNotify) return;
     if ((!SendAlert) && (!SendApp) && (!SendEmail)) return;
@@ -360,7 +360,6 @@ void DrawPanel()
 
     Rows++;
 
-    ObjectSetInteger(0, PanelBase, OBJPROP_XSIZE, PanelRecX);
     ObjectSetInteger(0, PanelBase, OBJPROP_YSIZE, (PanelMovY + 1) * Rows + 3);
 }
 
@@ -381,6 +380,7 @@ void ChangeTrailingEnabled()
     }
     else EnableTrailing = false;
     DrawPanel();
+    ChartRedraw();
 }
 
 // Tries to find a handle for a symbol in arrays.
