@@ -1,5 +1,5 @@
 #property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
-#property version       "1.08"
+#property version       "1.09"
 
 #property copyright     "EarnForex.com - 2019-2024"
 #property description   "This expert advisor will trail the stop-loss using ATR as a distance from the price."
@@ -39,6 +39,7 @@ input string Comment_1 = "====================";  // Expert Advisor Settings
 input int ATRPeriod = 14;                         // ATR Period
 input int Shift = 1;                              // Shift In The ATR Value (1=Previous Candle)
 input double ATRMultiplier = 1.0;                 // ATR Multiplier
+input double ActivationATRMult = 1.5;             // Activation threshold (in ATR multiples) - trailing enables when profit >= this * ATR
 input string Comment_2 = "====================";  // Orders Filtering Options
 input bool OnlyCurrentSymbol = true;              // Apply To Current Symbol Only
 input ENUM_CONSIDER OnlyType = All;               // Apply To
@@ -197,6 +198,26 @@ void TrailingStop()
             Print("Not enough historical data - please load more candles for the selected timeframe.");
             return;
         }
+
+        // --- Activation check: only start trailing after position in profit by ActivationATRMult * ATR
+        double atr = GetATR(Instrument);
+        double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+        double currentBid = SymbolInfoDouble(Instrument, SYMBOL_BID);
+        double currentAsk = SymbolInfoDouble(Instrument, SYMBOL_ASK);
+        bool activated = true; // default true to preserve original behaviour if ActivationATRMult <= 0
+        if (ActivationATRMult > 0)
+        {
+            if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+                activated = ((currentBid - openPrice) >= (ActivationATRMult * atr));
+            }
+            else if (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL)
+            {
+                activated = ((openPrice - currentAsk) >= (ActivationATRMult * atr));
+            }
+        }
+
+        if (!activated) continue; // skip trailing until threshold reached
 
         int eDigits = (int)SymbolInfoInteger(Instrument, SYMBOL_DIGITS);
         SLBuy = NormalizeDouble(SLBuy, eDigits);
