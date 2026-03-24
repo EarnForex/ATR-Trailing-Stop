@@ -1,12 +1,12 @@
-#property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
-#property version       "1.08"
+﻿#property link          "https://www.earnforex.com/metatrader-expert-advisors/atr-trailing-stop/"
+#property version       "1.09"
 #property strict
-#property copyright     "EarnForex.com - 2019-2024"
+#property copyright     "EarnForex.com - 2019-2026"
 #property description   "This expert advisor will trail the stop-loss using ATR as a distance from the price."
-#property description   " "
+#property description   ""
 #property description   "WARNING: Use this software at your own risk."
 #property description   "The creator of this EA cannot be held responsible for any damage or loss."
-#property description   " "
+#property description   ""
 #property description   "Find More on www.EarnForex.com"
 #property icon          "\\Files\\EF-Icon-64x64px.ico"
 
@@ -38,6 +38,8 @@ input string Comment_1 = "====================";  // Expert Advisor Settings
 input int ATRPeriod = 14;                         // ATR Period
 input int Shift = 1;                              // Shift In The ATR Value (1=Previous Candle)
 input double ATRMultiplier = 1.0;                 // ATR Multiplier
+input double ActivationATRMult = 0;               // Activation threshold (in ATR multiples)
+input int ActivationMinProfit = 0;                // Activation threshold (in points)
 input string Comment_2 = "====================";  // Orders Filtering Options
 input bool OnlyCurrentSymbol = true;              // Apply To Current Symbol Only
 input ENUM_CONSIDER OnlyType = All;               // Apply To
@@ -56,6 +58,19 @@ input bool ShowPanel = true;                      // Show Graphical Panel
 input string ExpertName = "MQLTA-ATRTS";          // Expert Name (to name the objects)
 input int Xoff = 20;                              // Horizontal spacing for the control panel
 input int Yoff = 20;                              // Vertical spacing for the control panel
+input string Comment_4 = "====================";  // Potential Stop-Loss Lines
+input bool ShowPotentialSLLines = false;          // Show Potential SL Lines
+input color PotentialSLBuyColor = clrDodgerBlue;  // Potential Buy SL Line Color
+input color PotentialSLSellColor = clrOrangeRed;  // Potential Sell SL Line Color
+input ENUM_LINE_STYLE PotentialSLStyle = STYLE_DOT; // Potential SL Line Style
+input int PotentialSLWidth = 1;                   // Potential SL Line Width
+input string Comment_5 = "====================";  // Activation Lines
+input bool ShowActivationLines = false;           // Show Activation Lines
+input color ActivationBuyColor = clrDarkGray;     // Activation Buy Line Color
+input color ActivationSellColor = clrDarkSlateGray; // Activation Sell Line Color
+input ENUM_LINE_STYLE ActivationStyle = STYLE_DASH; // Activation Line Style
+input int ActivationWidth = 1;                    // Activation Line Width
+input int ActivationFontSize = 8;                 // Activation Label Font Size
 
 int OrderOpRetry = 5;
 bool EnableTrailing = EnableTrailingParam;
@@ -76,18 +91,33 @@ int OnInit()
 
     if (ShowPanel) DrawPanel();
 
+    DrawPotentialSLLines();
+    DrawActivationLines();
+    
+    if (ShowPotentialSLLines || ShowActivationLines) EventSetTimer(1); // If lines are required, use timer to refresh the lines for off-market hours.
+
     return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
     CleanPanel();
+    CleanPotentialSLLines();
+    CleanActivationLines();
 }
 
 void OnTick()
 {
     if (EnableTrailing) TrailingStop();
     if (ShowPanel) DrawPanel();
+    DrawPotentialSLLines();
+    DrawActivationLines();
+}
+
+void OnTimer()
+{
+    DrawPotentialSLLines();
+    DrawActivationLines();
 }
 
 void OnChartEvent(const int id,
@@ -112,17 +142,21 @@ void OnChartEvent(const int id,
             }
         }
     }
+    else if (id == CHARTEVENT_CHART_CHANGE)
+    {
+        RepositionActivationLabels();
+    }
 }
 
 double GetStopLossBuy(string Instrument)
 {
-    double SLValue = iClose(Instrument, PERIOD_CURRENT, 0) - iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift) * ATRMultiplier;
+    double SLValue = SymbolInfoDouble(Instrument, SYMBOL_BID) - iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift) * ATRMultiplier;
     return SLValue;
 }
 
 double GetStopLossSell(string Instrument)
 {
-    double SLValue = iClose(Instrument, PERIOD_CURRENT, 0) + iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift) * ATRMultiplier;
+    double SLValue = SymbolInfoDouble(Instrument, SYMBOL_ASK) + iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift) * ATRMultiplier;
     return SLValue;
 }
 
@@ -138,14 +172,51 @@ void TrailingStop()
             Print("ERROR - ", ErrorText);
             continue;
         }
-        if ((OnlyCurrentSymbol) && (OrderSymbol() != Symbol())) continue;
-        if ((UseMagic) && (OrderMagicNumber() != MagicNumber)) continue;
-        if ((UseComment) && (StringFind(OrderComment(), CommentFilter) < 0)) continue;
-        if ((OnlyType != All) && (OrderType() != OnlyType)) continue;
+        if (OnlyCurrentSymbol && OrderSymbol() != Symbol()) continue;
+        if (UseMagic && OrderMagicNumber() != MagicNumber) continue;
+        if (UseComment && StringFind(OrderComment(), CommentFilter) < 0) continue;
+        if (OnlyType != All && OrderType() != OnlyType) continue;
 
         double NewSL = 0;
         double NewTP = 0;
         string Instrument = OrderSymbol();
+
+        if (ActivationATRMult > 0) // If there is ATR-based activated multiplier.
+        {
+            // Activation check: only start trailing after position in profit by ActivationATRMult * ATR
+            double atr = iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift);
+            double openPrice = OrderOpenPrice();
+            double currentBid = SymbolInfoDouble(Instrument, SYMBOL_BID);
+            double currentAsk = SymbolInfoDouble(Instrument, SYMBOL_ASK);
+            bool activated = true;
+            if (OrderType() == OP_BUY)
+            {
+                activated = (currentBid - openPrice >= ActivationATRMult * atr);
+            }
+            else if (OrderType() == OP_SELL)
+            {
+                activated = (openPrice - currentAsk >= ActivationATRMult * atr);
+            }
+            if (!activated) continue; // Skip trailing until ATR-based threshold is reached.
+        }
+        if (ActivationMinProfit > 0) // If there is point-based activated multiplier.
+        {
+            // Activation check: only start trailing after position in profit by ActivationMinProfit points.
+            double openPrice = OrderOpenPrice();
+            double currentBid = SymbolInfoDouble(Instrument, SYMBOL_BID);
+            double currentAsk = SymbolInfoDouble(Instrument, SYMBOL_ASK);
+            bool activated = true;
+            if (OrderType() == OP_BUY)
+            {
+                activated = (currentBid - openPrice >= ActivationMinProfit * MarketInfo(Instrument, MODE_POINT));
+            }
+            else if (OrderType() == OP_SELL)
+            {
+                activated = (openPrice - currentAsk >= ActivationATRMult * MarketInfo(Instrument, MODE_POINT));
+            }
+            if (!activated) continue; // Skip trailing until ATR-based threshold is reached.
+        }
+
         double SLBuy = GetStopLossBuy(Instrument);
         double SLSell = GetStopLossSell(Instrument);
         if ((SLBuy == 0) || (SLSell == 0))
@@ -247,6 +318,10 @@ void NotifyStopLossUpdate(int OrderNumber, double SLPrice, string symbol)
 string PanelBase = ExpertName + "-P-BAS";
 string PanelLabel = ExpertName + "-P-LAB";
 string PanelEnableDisable = ExpertName + "-P-ENADIS";
+string PotentialSLBuyName = ExpertName + "-SL-BUY";
+string PotentialSLSellName = ExpertName + "-SL-SELL";
+string ActivationLinePrefix = ExpertName + "-ACT-";
+string ActivationLabelPrefix = ExpertName + "-ACTL-";
 void DrawPanel()
 {
     string PanelText = "MQLTA ATRTS";
@@ -324,17 +399,245 @@ void CleanPanel()
     ObjectsDeleteAll(0, ExpertName + "-P-");
 }
 
+void DrawPotentialSLLines()
+{
+    if (!ShowPotentialSLLines)
+    {
+        CleanPotentialSLLines();
+        return;
+    }
+
+    double atr = iATR(Symbol(), PERIOD_CURRENT, ATRPeriod, Shift);
+    if (atr == 0) return;
+
+    double distance = ATRMultiplier * atr;
+    double slBuyLevel = SymbolInfoDouble(Symbol(), SYMBOL_BID) - distance;
+    double slSellLevel = SymbolInfoDouble(Symbol(), SYMBOL_ASK) + distance;
+
+    int eDigits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+    slBuyLevel = NormalizeDouble(slBuyLevel, eDigits);
+    slSellLevel = NormalizeDouble(slSellLevel, eDigits);
+
+    CreateOrMoveHLine(PotentialSLBuyName, slBuyLevel, PotentialSLBuyColor, PotentialSLStyle, PotentialSLWidth,
+                      "Potential Buy SL: " + DoubleToString(slBuyLevel, eDigits));
+    CreateOrMoveHLine(PotentialSLSellName, slSellLevel, PotentialSLSellColor, PotentialSLStyle, PotentialSLWidth,
+                      "Potential Sell SL: " + DoubleToString(slSellLevel, eDigits));
+}
+
+void CleanPotentialSLLines()
+{
+    ObjectDelete(0, PotentialSLBuyName);
+    ObjectDelete(0, PotentialSLSellName);
+}
+
+void DrawActivationLines()
+{
+    if (!ShowActivationLines || !EnableTrailing)
+    {
+        CleanActivationLines();
+        return;
+    }
+
+    // Activation lines only make sense when at least one activation threshold is set.
+    if (ActivationATRMult == 0 && ActivationMinProfit == 0)
+    {
+        CleanActivationLines();
+        return;
+    }
+
+    datetime leftTime = GetLeftVisibleBarTime();
+
+    // Collect tickets of current symbol positions that should have activation lines.
+    ulong activeTickets[];
+    int activeCount = 0;
+
+    for (int i = 0; i < OrdersTotal(); i++)
+    {
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES ) == false)
+        {
+            int Error = GetLastError();
+            string ErrorText = GetLastErrorText(Error);
+            Print("ERROR - Unable to select the order - ", Error);
+            Print("ERROR - ", ErrorText);
+            continue;
+        }
+        int ticket = OrderTicket();
+        if (OnlyCurrentSymbol && OrderSymbol() != Symbol()) continue;
+        if (UseMagic && OrderMagicNumber() != MagicNumber) continue;
+        if (UseComment && StringFind(OrderComment(), CommentFilter) < 0) continue;
+        if (OnlyType != All && OrderType() != OnlyType) continue;
+
+        string Instrument = OrderSymbol();
+        double openPrice = OrderOpenPrice();
+        int eDigits = (int)SymbolInfoInteger(Instrument, SYMBOL_DIGITS);
+
+        // Calculate the activation distance — use whichever threshold is farther.
+        double distATR = 0;
+        double distPoints = 0;
+        if (ActivationATRMult > 0) distATR = ActivationATRMult * iATR(Instrument, PERIOD_CURRENT, ATRPeriod, Shift);
+        if (ActivationMinProfit > 0) distPoints = ActivationMinProfit * SymbolInfoDouble(Instrument, SYMBOL_POINT);
+        double activationDist = MathMax(distATR, distPoints);
+        if (activationDist == 0) continue;
+
+        double activationLevel = 0;
+        color lineColor = clrNONE;
+        string dirLabel = "";
+        if (OrderType() == OP_BUY)
+        {
+            activationLevel = NormalizeDouble(openPrice + activationDist, eDigits);
+            double currentBid = SymbolInfoDouble(Instrument, SYMBOL_BID);
+            if (SymbolInfoDouble(Instrument, SYMBOL_BID) >= activationLevel) continue; // Skip activation lines that have already been passed.
+            lineColor = ActivationBuyColor;
+            dirLabel = "Buy";
+        }
+        else if (OrderType() == OP_SELL)
+        {
+            activationLevel = NormalizeDouble(openPrice - activationDist, eDigits);
+            double currentAsk = SymbolInfoDouble(Instrument, SYMBOL_ASK);
+            if (SymbolInfoDouble(Instrument, SYMBOL_ASK) <= activationLevel) continue; // Skip activation lines that have already been passed.
+            lineColor = ActivationSellColor;
+            dirLabel = "Sell";
+        }
+        else continue;
+
+        string lineName = ActivationLinePrefix + IntegerToString(ticket);
+        string tooltip = "TSL Activation #" + IntegerToString(ticket) + " " + dirLabel + ": " + DoubleToString(activationLevel, eDigits);
+        CreateOrMoveHLine(lineName, activationLevel, lineColor, ActivationStyle, ActivationWidth, tooltip);
+
+        string labelName = ActivationLabelPrefix + IntegerToString(ticket);
+        string labelText = "#" + IntegerToString(ticket) + " " + dirLabel + " TSL Activation";
+        CreateOrMoveActivationLabel(labelName, leftTime, activationLevel, labelText, lineColor);
+
+        ArrayResize(activeTickets, activeCount + 1);
+        activeTickets[activeCount] = ticket;
+        activeCount++;
+    }
+
+    // Remove activation lines and labels for positions that no longer exist.
+    int totalObjects = ObjectsTotal(0, 0, OBJ_HLINE);
+    for (int i = totalObjects - 1; i >= 0; i--)
+    {
+        string objName = ObjectName(0, i, 0, OBJ_HLINE);
+        if (StringFind(objName, ActivationLinePrefix) != 0) continue;
+        // Extract ticket from the object name.
+        string ticketStr = StringSubstr(objName, StringLen(ActivationLinePrefix));
+        ulong objTicket = (ulong)StringToInteger(ticketStr);
+        bool found = false;
+        for (int j = 0; j < activeCount; j++)
+        {
+            if (activeTickets[j] == objTicket)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            ObjectDelete(0, objName);
+            ObjectDelete(0, ActivationLabelPrefix + ticketStr);
+        }
+    }
+    // Also clean orphaned labels (e.g. if the line was already removed).
+    int totalText = ObjectsTotal(0, 0, OBJ_TEXT);
+    for (int i = totalText - 1; i >= 0; i--)
+    {
+        string objName = ObjectName(0, i, 0, OBJ_TEXT);
+        if (StringFind(objName, ActivationLabelPrefix) != 0) continue;
+        string ticketStr = StringSubstr(objName, StringLen(ActivationLabelPrefix));
+        ulong objTicket = (ulong)StringToInteger(ticketStr);
+        bool found = false;
+        for (int j = 0; j < activeCount; j++)
+        {
+            if (activeTickets[j] == objTicket)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found) ObjectDelete(0, objName);
+    }
+}
+
+void CleanActivationLines()
+{
+    ObjectsDeleteAll(0, ActivationLinePrefix);
+    ObjectsDeleteAll(0, ActivationLabelPrefix);
+}
+
+// Returns the time of the leftmost visible bar on the chart.
+datetime GetLeftVisibleBarTime()
+{
+    int firstVisibleBar = (int)ChartGetInteger(0, CHART_FIRST_VISIBLE_BAR);
+    datetime barTime = 0;
+    // iTime with shift = firstVisibleBar gives the leftmost visible bar's time.
+    barTime = iTime(Symbol(), PERIOD_CURRENT, firstVisibleBar);
+    if (barTime == 0) barTime = TimeCurrent(); // Fallback.
+    return barTime;
+}
+
+void CreateOrMoveActivationLabel(string name, datetime time, double price, string text, color clr)
+{
+    ObjectCreate(0, name, OBJ_TEXT, 0, time, price);
+    ObjectSetInteger(0, name, OBJPROP_TIME, time);
+    ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+    ObjectSetString(0, name, OBJPROP_TEXT, text);
+    ObjectSetString(0, name, OBJPROP_FONT, "Consolas");
+    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, ActivationFontSize);
+    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+    ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT_LOWER);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+}
+
+// Repositions all activation labels to the current leftmost visible bar.
+void RepositionActivationLabels()
+{
+    if ((!ShowActivationLines) || (!EnableTrailing)) return;
+    if ((ActivationATRMult == 0) && (ActivationMinProfit == 0)) return;
+
+    datetime leftTime = GetLeftVisibleBarTime();
+    int totalText = ObjectsTotal(0, 0, OBJ_TEXT);
+    for (int i = totalText - 1; i >= 0; i--)
+    {
+        string objName = ObjectName(0, i, 0, OBJ_TEXT);
+        if (StringFind(objName, ActivationLabelPrefix) != 0) continue;
+        ObjectSetInteger(0, objName, OBJPROP_TIME, leftTime);
+    }
+    ChartRedraw();
+}
+
+void CreateOrMoveHLine(string name, double price, color clr, ENUM_LINE_STYLE style, int width, string tooltip)
+{
+    ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+    ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+    ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+    ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+    ObjectSetInteger(0, name, OBJPROP_BACK, true);
+    ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+}
+
 void ChangeTrailingEnabled()
 {
     if (EnableTrailing == false)
     {
-        if (IsTradeAllowed()) EnableTrailing = true;
-        else
+        if (!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
         {
-            MessageBox("You need to first enable Live Trading in the EA options.", "WARNING", MB_OK);
+            MessageBox("Automated trading is disabled in the platform's options! Please enable it via Tools->Options->Expert Advisors.", "WARNING", MB_OK);
+            return;
         }
+        if (!MQLInfoInteger(MQL_TRADE_ALLOWED))
+        {
+            MessageBox("Live Trading is disabled in the expert advisor's settings! Please tick the Allow Live Trading checkbox on the Common tab.", "WARNING", MB_OK);
+            return;
+        }
+        EnableTrailing = true;
     }
     else EnableTrailing = false;
     DrawPanel();
+    DrawActivationLines();
+    ChartRedraw();
 }
 //+------------------------------------------------------------------+
